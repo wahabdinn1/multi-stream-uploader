@@ -48,6 +48,12 @@ interface AppState {
   
   // UI settings
   darkMode: boolean;
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+  } | null;
   
   // Actions
   addUploadFiles: (files: File[]) => void;
@@ -63,6 +69,7 @@ interface AppState {
   clearHistory: () => void;
   
   setProviderStatus: (status: ProviderStatus) => void;
+  setUser: (user: { id: string; email: string; name: string; role: string } | null) => void;
   
   toggleDarkMode: () => void;
 }
@@ -77,6 +84,7 @@ export const useAppStore = create<AppState>()(
       history: [],
       providerStatus: {},
       darkMode: false,
+      user: null,
       
       // Upload actions
       addUploadFiles: (files: File[]) => {
@@ -146,6 +154,11 @@ export const useAppStore = create<AppState>()(
       // Provider actions
       setProviderStatus: (status: ProviderStatus) => {
         set({ providerStatus: status });
+      },
+      
+      // User actions
+      setUser: (user: { id: string; email: string; name: string; role: string } | null) => {
+        set({ user });
       },
       
       // UI actions

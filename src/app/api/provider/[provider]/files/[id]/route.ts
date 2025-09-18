@@ -1,11 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getApiKey, isAllowedProvider } from '@/lib/keyStorage';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { prisma } from '@/lib/prisma';
+
+// Define allowed providers directly in the API route
+const ALLOWED_PROVIDERS = [
+  'doodstream',
+  'streamtape', 
+  'vidguard',
+  'bigwarp'
+];
+
+function isAllowedProvider(provider: string): boolean {
+  return ALLOWED_PROVIDERS.includes(provider);
+}
+
+async function getApiKey(provider: string, userId: string): Promise<string | null> {
+  try {
+    const providerKey = await prisma.providerKey.findFirst({
+      where: {
+        userId: userId,
+        provider: provider
+      },
+      select: {
+        apiKey: true
+      }
+    });
+    
+    return providerKey?.apiKey || null;
+  } catch (error) {
+    console.error('Error getting API key:', error);
+    return null;
+  }
+}
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ provider: string; id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { provider, id: fileId } = await params;
 
     if (!isAllowedProvider(provider)) {
@@ -15,7 +56,7 @@ export async function DELETE(
       );
     }
 
-    const apiKey = await getApiKey(provider);
+    const apiKey = await getApiKey(provider, session.user.id);
     if (!apiKey) {
       return NextResponse.json(
         { error: `No API key found for ${provider}` },

@@ -88,7 +88,7 @@ export class VidGuardProvider implements IProvider {
       
       // Step 2: Upload file to the server
       const formData = new FormData();
-      formData.append('file', new Blob([fileBuffer], { type: 'video/mp4' }), filename);
+      formData.append('file', new Blob([new Uint8Array(fileBuffer)], { type: 'video/mp4' }), filename);
       formData.append('key', apiKey);
       
       if (options?.folder) {
@@ -298,7 +298,7 @@ export class DoodStreamProvider implements IProvider {
       
       // Step 2: Upload file to the server
       const formData = new FormData();
-      formData.append('file', new Blob([fileBuffer], { type: 'video/mp4' }), filename);
+      formData.append('file', new Blob([new Uint8Array(fileBuffer)], { type: 'video/mp4' }), filename);
       formData.append('api_key', apiKey);
       
       if (options?.folder) {
@@ -562,7 +562,7 @@ export class BigWarpProvider implements IProvider {
       
       // Step 2: Upload file to the server with correct form structure
       const formData = new FormData();
-      formData.append('file', new Blob([fileBuffer], { type: 'video/mp4' }), filename);
+      formData.append('file', new Blob([new Uint8Array(fileBuffer)], { type: 'video/mp4' }), filename);
       formData.append('key', apiKey);
       
       // Add optional parameters based on API docs
@@ -800,7 +800,7 @@ class StreamTapeProvider implements IProvider {
 
       // Upload file
       const formData = new FormData();
-      const blob = new Blob([fileBuffer], { type: 'video/*' });
+      const blob = new Blob([new Uint8Array(fileBuffer)], { type: 'video/*' });
       formData.append('file1', blob, filename);
 
       const uploadResponse = await fetch(uploadUrl, {

@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Trash2, Plus, Eye, EyeOff, Save, Key, Shield, Users, Database, Settings, UserCog } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
-import { Key, Trash2, Eye, EyeOff, Save } from 'lucide-react';
 
 interface ProviderConfig {
   name: string;
@@ -15,35 +17,64 @@ interface ProviderConfig {
   key?: string;
 }
 
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  createdAt: string;
+  _count: {
+    providerKeys: number;
+    uploadHistory: number;
+  };
+}
+
+interface AdminKey {
+  id: string;
+  provider: string;
+  user: {
+    name: string;
+    email: string;
+  };
+  createdAt: string;
+}
+
 export default function SettingsContent() {
+  const { data: session } = useSession();
   const { setProviderStatus } = useAppStore();
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [newKeys, setNewKeys] = useState<Record<string, string>>({});
+  
+  // Admin-specific state
+  const [adminUsers, setAdminUsers] = useState<User[]>([]);
+  const [adminKeys, setAdminKeys] = useState<AdminKey[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
 
   useEffect(() => {
     fetchProviderStatus();
-  }, []);
+    if (session?.user?.role === 'SUPER_ADMIN') {
+      fetchAdminData();
+    }
+  }, [session]);
 
   const fetchProviderStatus = async () => {
     try {
-      const [statusResponse, allowedResponse, keysResponse] = await Promise.all([
+      const [statusResponse, allowedResponse] = await Promise.all([
         fetch('/api/keys'),
-        fetch('/api/keys/allowed'),
-        fetch('/api/keys/values')
+        fetch('/api/keys/allowed')
       ]);
 
       const statusResult = await statusResponse.json();
       const allowedResult = await allowedResponse.json();
-      const keysResult = await keysResponse.json();
 
-      if (statusResult.success && allowedResult.success && keysResult.success) {
+      if (statusResult.success && allowedResult.success) {
         const providerConfigs: ProviderConfig[] = allowedResult.providers.map((name: string) => ({
           name,
           configured: statusResult.providers[name] || false,
-          key: keysResult.keys[name] || '',
+          key: '',
         }));
         
         setProviders(providerConfigs);
@@ -142,6 +173,54 @@ export default function SettingsContent() {
     }));
   };
 
+  // Admin functions
+  const fetchAdminData = async () => {
+    if (session?.user?.role !== 'SUPER_ADMIN') return;
+    
+    setAdminLoading(true);
+    try {
+      const [usersResponse, keysResponse] = await Promise.all([
+        fetch('/api/admin/users'),
+        fetch('/api/admin/keys')
+      ]);
+
+      if (usersResponse.ok) {
+        const usersData = await usersResponse.json();
+        setAdminUsers(usersData.users || []);
+      }
+
+      if (keysResponse.ok) {
+        const keysData = await keysResponse.json();
+        setAdminKeys(keysData.keys || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch admin data:', error);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const deleteUserKey = async (keyId: string) => {
+    if (!confirm('Are you sure you want to delete this API key?')) return;
+
+    try {
+      const response = await fetch(`/api/admin/keys/${keyId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        await fetchAdminData(); // Refresh data
+        alert('API key deleted successfully');
+      } else {
+        alert('Failed to delete API key');
+      }
+    } catch (error) {
+      console.error('Error deleting key:', error);
+      alert('Failed to delete API key');
+    }
+  };
+
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -168,7 +247,7 @@ export default function SettingsContent() {
         </div>
       </div>
 
-      {/* Provider Configuration */}
+      {/* Provider Configuration - For All Users */}
       <div className="space-y-4">
         <h2 className="text-2xl font-bold gradient-text mb-4">🔑 Provider API Keys</h2>
         
@@ -216,24 +295,10 @@ export default function SettingsContent() {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-black font-black text-sm">🔐 API KEY</label>
-                  {provider.configured && provider.key ? (
+                  {provider.configured ? (
                     <div className="space-y-2">
-                      <div className="flex gap-2">
-                        <input
-                          type={showKeys[provider.name] ? 'text' : 'password'}
-                          value={showKeys[provider.name] ? provider.key : '••••••••••••••••'}
-                          readOnly
-                          className="flex-1 p-2 border-3 border-black font-bold text-black bg-gray-100"
-                        />
-                        <button
-                          onClick={() => toggleKeyVisibility(provider.name)}
-                          className="px-3 py-2 bg-gray-200 border-3 border-black font-black hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shadow-brutal"
-                        >
-                          {showKeys[provider.name] ? '👁️' : '🙈'}
-                        </button>
-                      </div>
-                      <div className="text-xs text-gray-600 font-bold">
-                        {provider.name === 'streamtape' ? 'Current saved login:key' : 'Current saved API key'}
+                      <div className="p-3 bg-green-100 border-2 border-green-500 font-bold text-green-800">
+                        ✅ API Key Configured
                       </div>
                     </div>
                   ) : null}

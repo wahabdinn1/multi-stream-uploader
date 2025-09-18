@@ -1,0 +1,47 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  providerKeys ProviderKey[]
+  history      UploadHistory[]
+}
+
+model ProviderKey {
+  id        String   @id @default(cuid())
+  provider  String
+  apiKey    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+}
+
+model UploadHistory {
+  id        String   @id @default(cuid())
+  filename  String
+  provider  String
+  status    String
+  url       String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+}
+
+enum Role {
+  USER
+  SUPER_ADMIN
+}

@@ -28,6 +28,10 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
   const [error, setError] = useState<string | null>(null);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [renameItem, setRenameItem] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
+  const [moveItem, setMoveItem] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
+  const [newName, setNewName] = useState('');
+  const [targetFolderId, setTargetFolderId] = useState('');
   const [breadcrumbs, setBreadcrumbs] = useState<{ id: string; name: string }[]>([
     { id: '0', name: 'Root' }
   ]);
@@ -36,6 +40,8 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
   const [sortBy, setSortBy] = useState<'name' | 'size' | 'date'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [activeProvider, setActiveProvider] = useState<string>(provider);
+  const [showProviderSwitch, setShowProviderSwitch] = useState<boolean>(false);
 
   const providerConfig = {
     doodstream: {
@@ -64,18 +70,18 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
     }
   };
 
-  const config = providerConfig[provider as keyof typeof providerConfig];
+  const config = providerConfig[activeProvider as keyof typeof providerConfig];
 
   useEffect(() => {
     loadFolderContents(currentFolder);
-  }, [currentFolder, provider]);
+  }, [currentFolder, activeProvider]);
 
   const loadFolderContents = async (folderId: string) => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await fetch(`/api/provider/${provider}/folders?folder_id=${folderId}`);
+      const response = await fetch(`/api/provider/${activeProvider}/folders?folder_id=${folderId}`);
       const data = await response.json();
       
       if (!response.ok) {
@@ -96,7 +102,7 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
     
     setLoading(true);
     try {
-      const response = await fetch(`/api/provider/${provider}/folders`, {
+      const response = await fetch(`/api/provider/${activeProvider}/folders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -121,13 +127,93 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
     }
   };
 
-  const deleteItem = async (id: string, type: 'folder' | 'file') => {
+  const renameItemAction = async () => {
+    if (!renameItem || !newName.trim()) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const endpoint = renameItem.type === 'folder' 
+        ? `/api/provider/${activeProvider}/folders/${renameItem.id}/rename`
+        : `/api/provider/${activeProvider}/files/${renameItem.id}/rename`;
+      
+      const response = await fetch(endpoint, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: newName }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to rename item');
+      }
+
+      // Update local state
+      if (renameItem.type === 'folder') {
+        setFolders(prev => prev.map(folder => 
+          folder.id === renameItem.id 
+            ? { ...folder, name: newName }
+            : folder
+        ));
+      } else {
+        setFiles(prev => prev.map(file => 
+          file.id === renameItem.id 
+            ? { ...file, name: newName }
+            : file
+        ));
+      }
+
+      setRenameItem(null);
+      setNewName('');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to rename item');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const moveFileAction = async () => {
+    if (!moveItem || !targetFolderId) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`/api/provider/${activeProvider}/files/${moveItem.id}/move`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ folder_id: targetFolderId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to move file');
+      }
+
+      // Remove file from current view
+      setFiles(prev => prev.filter(file => file.id !== moveItem.id));
+      
+      setMoveItem(null);
+      setTargetFolderId('');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to move file');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteItem = async (id: string, type: 'file' | 'folder') => {
     if (!confirm(`Are you sure you want to delete this ${type}?`)) return;
     
     setLoading(true);
     try {
       const endpoint = type === 'folder' ? 'folders' : 'files';
-      const response = await fetch(`/api/provider/${provider}/${endpoint}/${id}`, {
+      const response = await fetch(`/api/provider/${activeProvider}/${endpoint}/${id}`, {
         method: 'DELETE'
       });
       
@@ -243,13 +329,21 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
               <p className="text-gray-700 font-bold">Manage your folders and files</p>
             </div>
           </div>
-          <button
-            onClick={() => loadFolderContents(currentFolder)}
-            disabled={loading}
-            className="p-3 bg-green-400 border-3 border-black font-black hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shadow-brutal disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowProviderSwitch(true)}
+              className="px-3 py-2 bg-purple-400 border-3 border-black font-black hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shadow-brutal"
+            >
+              CHANGE PROVIDER
+            </button>
+            <button
+              onClick={() => loadFolderContents(currentFolder)}
+              disabled={loading}
+              className="p-3 bg-green-400 border-3 border-black font-black hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shadow-brutal disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -420,6 +514,43 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
         </div>
       )}
 
+      {/* Switch Provider Modal */}
+      {showProviderSwitch && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white border-4 border-black shadow-brutal p-6 max-w-lg w-full mx-4 transform rotate-1">
+            <h3 className="text-xl font-black text-black mb-4">SWITCH PROVIDER 🔁</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              {Object.entries(providerConfig).map(([key, val]) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setActiveProvider(key);
+                    setCurrentFolder('0');
+                    setBreadcrumbs([{ id: '0', name: 'Root' }]);
+                    setSelectedItems(new Set());
+                    setShowProviderSwitch(false);
+                  }}
+                  className={`flex items-center gap-3 p-3 border-3 border-black font-black hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shadow-brutal ${
+                    activeProvider === key ? 'bg-yellow-300' : 'bg-white'
+                  }`}
+                >
+                  <span className={`p-2 bg-gradient-to-r ${val.gradient} border-2 border-black shadow-brutal`}>{val.icon}</span>
+                  <span className="text-black">{val.name}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowProviderSwitch(false)}
+                className="flex-1 px-4 py-2 bg-gray-300 border-3 border-black font-black hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shadow-brutal"
+              >
+                CLOSE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Error Message */}
       {error && (
         <div className="bg-red-100 border-3 border-red-500 p-4 mb-4 transform -rotate-1">
@@ -455,13 +586,13 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
               >
                 {/* Selection Checkbox */}
                 <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3 flex-1">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
                     {item.type === 'folder' ? (
                       <Folder className="h-6 w-6 text-yellow-600" />
                     ) : (
                       getFileIcon(item.name)
                     )}
-                    <span className="font-black text-black truncate flex-1">{item.name}</span>
+                    <span title={item.name} className="font-black text-black truncate flex-1 block min-w-0">{item.name}</span>
                   </div>
                   <input
                     type="checkbox"
@@ -470,7 +601,7 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
                       e.stopPropagation();
                       toggleItemSelection(item.id);
                     }}
-                    className="w-4 h-4 border-2 border-black"
+                    className="w-4 h-4 border-2 border-black flex-shrink-0"
                   />
                 </div>
 
@@ -540,6 +671,28 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      setRenameItem({ id: item.id, name: item.name, type: item.type });
+                    }}
+                    className="p-1 bg-yellow-400 border-2 border-black hover:translate-x-0.5 hover:translate-y-0.5 transition-all"
+                    title="Rename"
+                  >
+                    <Edit2 className="h-3 w-3" />
+                  </button>
+                  {item.type === 'file' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMoveItem({ id: item.id, name: item.name, type: item.type });
+                      }}
+                      className="p-1 bg-purple-400 border-2 border-black hover:translate-x-0.5 hover:translate-y-0.5 transition-all"
+                      title="Move"
+                    >
+                      <Move className="h-3 w-3" />
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
                       deleteItem(item.id, item.type);
                     }}
                     className="p-1 bg-red-400 border-2 border-black hover:translate-x-0.5 hover:translate-y-0.5 transition-all"
@@ -592,7 +745,7 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
 
                 {/* Name */}
                 <div className="flex-1 min-w-0">
-                  <span className="font-bold text-black truncate block">{item.name}</span>
+                  <span title={item.name} className="font-bold text-black truncate block">{item.name}</span>
                 </div>
 
                 {/* Details */}
@@ -634,6 +787,28 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      setRenameItem({ id: item.id, name: item.name, type: item.type });
+                    }}
+                    className="p-1 bg-yellow-400 border border-black hover:translate-x-0.5 hover:translate-y-0.5 transition-all"
+                    title="Rename"
+                  >
+                    <Edit2 className="h-3 w-3" />
+                  </button>
+                  {item.type === 'file' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMoveItem({ id: item.id, name: item.name, type: item.type });
+                      }}
+                      className="p-1 bg-purple-400 border border-black hover:translate-x-0.5 hover:translate-y-0.5 transition-all"
+                      title="Move"
+                    >
+                      <Move className="h-3 w-3" />
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
                       deleteItem(item.id, item.type);
                     }}
                     className="p-1 bg-red-400 border border-black hover:translate-x-0.5 hover:translate-y-0.5 transition-all"
@@ -654,6 +829,89 @@ export function ProviderManager({ provider }: ProviderManagerProps) {
           <Folder className="h-12 w-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-xl font-black text-black mb-2">EMPTY FOLDER! 📂</h3>
           <p className="text-gray-600 font-bold">No folders or files found</p>
+        </div>
+      )}
+
+      {/* Rename Modal */}
+      {renameItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white border-4 border-black shadow-brutal p-6 max-w-md w-full mx-4 transform rotate-1">
+            <h3 className="text-xl font-black text-black mb-4">
+              RENAME {renameItem.type.toUpperCase()} 📝
+            </h3>
+            <input
+              type="text"
+              value={newName || renameItem.name}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder={`Enter new ${renameItem.type} name`}
+              className="w-full p-3 border-3 border-black font-bold text-black placeholder-gray-500 mb-4"
+              autoFocus
+              onKeyPress={(e) => e.key === 'Enter' && renameItemAction()}
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={renameItemAction}
+                disabled={!newName.trim() || loading}
+                className="flex-1 px-4 py-2 bg-green-400 border-3 border-black font-black hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shadow-brutal disabled:opacity-50"
+              >
+                RENAME
+              </button>
+              <button
+                onClick={() => {
+                  setRenameItem(null);
+                  setNewName('');
+                }}
+                className="flex-1 px-4 py-2 bg-red-400 border-3 border-black font-black hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shadow-brutal"
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move Modal */}
+      {moveItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white border-4 border-black shadow-brutal p-6 max-w-md w-full mx-4 transform -rotate-1">
+            <h3 className="text-xl font-black text-black mb-4">
+              MOVE FILE 📁
+            </h3>
+            <p className="text-gray-600 font-bold mb-4">
+              Moving: {moveItem.name}
+            </p>
+            <select
+              value={targetFolderId}
+              onChange={(e) => setTargetFolderId(e.target.value)}
+              className="w-full p-3 border-3 border-black font-bold text-black mb-4"
+            >
+              <option value="">Select destination folder</option>
+              <option value="0">Root Folder</option>
+              {folders.map((folder) => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.name}
+                </option>
+              ))}
+            </select>
+            <div className="flex gap-3">
+              <button
+                onClick={moveFileAction}
+                disabled={!targetFolderId || loading}
+                className="flex-1 px-4 py-2 bg-purple-400 border-3 border-black font-black hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shadow-brutal disabled:opacity-50"
+              >
+                MOVE
+              </button>
+              <button
+                onClick={() => {
+                  setMoveItem(null);
+                  setTargetFolderId('');
+                }}
+                className="flex-1 px-4 py-2 bg-red-400 border-3 border-black font-black hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shadow-brutal"
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

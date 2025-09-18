@@ -42,3 +42,5 @@ next-env.d.ts
 
 # API keys (server-side only)
 config/apiKeys.json
+
+/src/generated/prisma

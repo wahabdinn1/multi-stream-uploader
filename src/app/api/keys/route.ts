@@ -1,10 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getKeyStatus, setApiKey, deleteApiKey, isAllowedProvider, ALLOWED_PROVIDERS } from '@/lib/keyStorage';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { prisma } from '@/lib/prisma';
+
+// Define allowed providers directly in the API route
+const ALLOWED_PROVIDERS = [
+  'doodstream',
+  'streamtape', 
+  'vidguard',
+  'bigwarp'
+];
+
+function isAllowedProvider(provider: string): boolean {
+  return ALLOWED_PROVIDERS.includes(provider);
+}
 
 export async function GET() {
   try {
-    const status = await getKeyStatus();
-    return NextResponse.json({ success: true, providers: status });
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const providerKeys = await prisma.providerKey.findMany({
+      where: { userId: session.user.id },
+      select: {
+        id: true,
+        provider: true,
+        createdAt: true,
+      }
+    });
+
+    const status: Record<string, boolean> = {};
+    ALLOWED_PROVIDERS.forEach(provider => {
+      status[provider] = providerKeys.some(key => key.provider === provider);
+    });
+
+    return NextResponse.json({ 
+      success: true, 
+      providers: status,
+      keys: providerKeys
+    });
   } catch (error) {
     console.error('Error getting key status:', error);
     return NextResponse.json(
@@ -16,6 +55,14 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const { provider, key } = body;
 
@@ -40,7 +87,30 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    await setApiKey(provider, key);
+    // Check if key already exists for this user and provider
+    const existingKey = await prisma.providerKey.findFirst({
+      where: {
+        userId: session.user.id,
+        provider: provider
+      }
+    });
+
+    if (existingKey) {
+      // Update existing key
+      await prisma.providerKey.update({
+        where: { id: existingKey.id },
+        data: { apiKey: key }
+      });
+    } else {
+      // Create new key
+      await prisma.providerKey.create({
+        data: {
+          provider,
+          apiKey: key,
+          userId: session.user.id
+        }
+      });
+    }
     
     return NextResponse.json({ 
       success: true, 
@@ -58,28 +128,51 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { provider } = body;
-
-    if (!provider) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json(
-        { success: false, error: 'Provider is required' },
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const body = await request.json();
+    const { provider, id } = body;
+
+    if (!provider && !id) {
+      return NextResponse.json(
+        { success: false, error: 'Provider or ID is required' },
         { status: 400 }
       );
     }
 
-    if (!isAllowedProvider(provider)) {
+    if (provider && !isAllowedProvider(provider)) {
       return NextResponse.json(
         { success: false, error: `Invalid provider. Allowed providers: ${ALLOWED_PROVIDERS.join(', ')}` },
         { status: 400 }
       );
     }
 
-    await deleteApiKey(provider);
+    // Delete by ID or by provider
+    if (id) {
+      await prisma.providerKey.delete({
+        where: {
+          id: id,
+          userId: session.user.id // Ensure user can only delete their own keys
+        }
+      });
+    } else {
+      await prisma.providerKey.deleteMany({
+        where: {
+          provider: provider,
+          userId: session.user.id
+        }
+      });
+    }
     
     return NextResponse.json({ 
       success: true, 
-      message: `API key for ${provider} deleted successfully`,
+      message: `API key deleted successfully`,
       provider 
     });
   } catch (error) {

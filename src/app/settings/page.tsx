@@ -1,8 +1,15 @@
 import { Navbar } from '@/components/Navbar';
 import SettingsContent from '@/components/SettingsContent';
 import { Upload } from 'lucide-react';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { redirect } from 'next/navigation';
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    redirect('/login');
+  }
   return (
     <div className="min-h-screen bg-gradient-to-br from-yellow-300 via-pink-300 to-purple-400 relative">
       {/* Neobrutalism Background Elements */}

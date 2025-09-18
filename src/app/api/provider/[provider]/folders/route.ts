@@ -1,11 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getApiKey, isAllowedProvider } from '@/lib/keyStorage';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { prisma } from '@/lib/prisma';
+
+// Define allowed providers directly in the API route
+const ALLOWED_PROVIDERS = [
+  'doodstream',
+  'streamtape', 
+  'vidguard',
+  'bigwarp'
+];
+
+function isAllowedProvider(provider: string): boolean {
+  return ALLOWED_PROVIDERS.includes(provider);
+}
+
+async function getApiKey(provider: string, userId: string): Promise<string | null> {
+  try {
+    const providerKey = await prisma.providerKey.findFirst({
+      where: {
+        userId: userId,
+        provider: provider
+      },
+      select: {
+        apiKey: true
+      }
+    });
+    
+    return providerKey?.apiKey || null;
+  } catch (error) {
+    console.error('Error getting API key:', error);
+    return null;
+  }
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ provider: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const folderId = searchParams.get('folder_id') || '0';
     const { provider } = await params;
@@ -17,7 +58,7 @@ export async function GET(
       );
     }
 
-    const apiKey = await getApiKey(provider);
+    const apiKey = await getApiKey(provider, session.user.id);
     if (!apiKey) {
       return NextResponse.json(
         { error: `No API key found for ${provider}` },
@@ -28,7 +69,7 @@ export async function GET(
     let apiUrl = '';
     let headers: Record<string, string> = {};
 
-    switch (provider) {
+    switch (provider as string) {
       case 'doodstream':
         // Use both folder and file listing endpoints
         apiUrl = `https://doodapi.com/api/folder/list?key=${apiKey}&fld_id=${folderId}&only_folders=0`;
@@ -133,7 +174,7 @@ export async function GET(
     data = await response.json();
 
     // Normalize response format across providers
-    switch (provider) {
+    switch (provider as string) {
       case 'doodstream':
         if (data.status === 200 && data.result) {
           folders = data.result.folders?.map((f: any) => ({
@@ -225,6 +266,14 @@ export async function POST(
   { params }: { params: Promise<{ provider: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { name, parent_id } = await request.json();
     const { provider } = await params;
 
@@ -242,7 +291,7 @@ export async function POST(
       );
     }
 
-    const apiKey = await getApiKey(provider);
+    const apiKey = await getApiKey(provider, session.user.id);
     if (!apiKey) {
       return NextResponse.json(
         { error: `No API key found for ${provider}` },

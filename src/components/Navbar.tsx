@@ -1,15 +1,17 @@
 'use client';
 
-import { Settings, History, Upload, User, ChevronDown, Folder } from 'lucide-react';
+import { Settings, History, Upload, User, ChevronDown, Folder, LogOut, Shield } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
+import { useSession, signOut } from 'next-auth/react';
 import { ProviderManager } from './ProviderManager';
 
 export function Navbar() {
   const pathname = usePathname();
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const { data: session } = useSession();
 
   const providers = [
     { name: 'doodstream', label: 'DOODSTREAM', icon: '🎬', gradient: 'from-purple-500 to-pink-500' },
@@ -46,7 +48,14 @@ export function Navbar() {
       label: 'SETTINGS',
       activeColors: 'bg-gradient-to-r from-orange-500 to-red-500 text-white transform -rotate-1',
       hoverColors: 'hover:bg-orange-100'
-    }
+    },
+    ...(session?.user?.role === 'SUPER_ADMIN' ? [{
+      href: '/admin',
+      icon: Shield,
+      label: 'ADMIN',
+      activeColors: 'bg-gradient-to-r from-red-500 to-pink-500 text-white transform rotate-1',
+      hoverColors: 'hover:bg-red-100'
+    }] : [])
   ];
 
   return (
@@ -106,6 +115,46 @@ export function Navbar() {
                 </div>
               </button>
             ))}
+          </div>
+        )}
+      </div>
+      
+      {/* User Menu Dropdown */}
+      <div className="relative">
+        <button
+          onClick={() => setOpenDropdown(openDropdown === 'user' ? null : 'user')}
+          className="p-3 font-black text-sm border-3 border-black shadow-brutal transition-all hover:translate-x-1 hover:translate-y-1 hover:shadow-none flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white transform -rotate-1"
+        >
+          <User className="h-4 w-4" />
+          <span className="hidden sm:block">{session?.user?.name || 'USER'}</span>
+          <ChevronDown className={`h-3 w-3 transition-transform ${openDropdown === 'user' ? 'rotate-180' : ''}`} />
+        </button>
+        
+        {openDropdown === 'user' && (
+          <div className="absolute top-full right-0 mt-2 bg-white border-3 border-black shadow-brutal z-50 min-w-[200px]">
+            <div className="p-3 border-b-2 border-black bg-gray-50">
+              <p className="font-black text-sm text-black">{session?.user?.name}</p>
+              <p className="text-xs text-gray-600 font-bold">{session?.user?.email}</p>
+              <span className={`inline-block px-2 py-1 text-xs font-black border-2 border-black mt-1 ${
+                session?.user?.role === 'SUPER_ADMIN' 
+                  ? 'bg-red-400 text-black' 
+                  : 'bg-blue-400 text-black'
+              }`}>
+                {session?.user?.role}
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                signOut({ callbackUrl: '/login' });
+                setOpenDropdown(null);
+              }}
+              className="block w-full p-3 font-black text-sm transition-all hover:translate-x-1 hover:bg-red-100 text-left text-red-600 border-b-2 border-black last:border-b-0"
+            >
+              <div className="flex items-center gap-2">
+                <LogOut className="h-4 w-4" />
+                <span>LOGOUT</span>
+              </div>
+            </button>
           </div>
         )}
       </div>

@@ -1,15 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readApiKeys } from '@/lib/keyStorage';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { prisma } from '@/lib/prisma';
 import { getProvider } from '@/lib/providers';
 
 export async function GET(request: NextRequest) {
   try {
-    const apiKeys = await readApiKeys();
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    // Get API keys from Prisma database
+    const providerKeys = await prisma.providerKey.findMany({
+      where: { userId: session.user.id },
+      select: {
+        provider: true,
+        apiKey: true,
+      }
+    });
+
     const accounts: Record<string, any> = {};
     
     // Get account info for each configured provider
-    for (const [provider, key] of Object.entries(apiKeys)) {
-      if (key) {
+    for (const keyRecord of providerKeys) {
+      const { provider, apiKey } = keyRecord;
+      if (apiKey) {
         try {
           const providerInstance = getProvider(provider as any);
           const accountInfo = await providerInstance.getAccountInfo();

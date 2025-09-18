@@ -7,7 +7,7 @@ export interface ApiKeys {
   [provider: string]: string;
 }
 
-export const ALLOWED_PROVIDERS = ['vidguard', 'bigwarp', 'doodstream', 'streamtape'] as const;
+export const ALLOWED_PROVIDERS = ['bigwarp', 'doodstream', 'streamtape', 'vidguard'] as const;
 export type AllowedProvider = typeof ALLOWED_PROVIDERS[number];
 
 export function isAllowedProvider(provider: string): provider is AllowedProvider {

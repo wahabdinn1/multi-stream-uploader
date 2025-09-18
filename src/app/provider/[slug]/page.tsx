@@ -1,13 +1,16 @@
-'use client';
-
-import { useParams } from 'next/navigation';
 import { ProviderManager } from '../../../components/ProviderManager';
 import { Navbar } from '@/components/Navbar';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { redirect } from 'next/navigation';
 
-export default function ProviderPage() {
-  const params = useParams();
-  const provider = params.slug as string;
+export default async function ProviderPage({ params }: { params: { slug: string } }) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    redirect('/login');
+  }
 
+  const provider = params.slug;
   const validProviders = ['doodstream', 'streamtape', 'vidguard', 'bigwarp'];
   
   if (!validProviders.includes(provider)) {
