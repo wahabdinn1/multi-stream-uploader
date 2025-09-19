@@ -1,7 +1,6 @@
-import { promises as fs } from 'fs';
-import path from 'path';
-
-const KEYS_FILE_PATH = path.join(process.cwd(), 'config', 'apiKeys.json');
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { prisma } from '@/lib/prisma';
 
 export interface ApiKeys {
   [provider: string]: string;
@@ -16,33 +15,57 @@ export function isAllowedProvider(provider: string): provider is AllowedProvider
 
 export async function readApiKeys(): Promise<ApiKeys> {
   try {
-    const data = await fs.readFile(KEYS_FILE_PATH, 'utf-8');
-    return JSON.parse(data);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      // File doesn't exist, return empty object
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return {};
     }
-    throw error;
+
+    const providerKeys = await prisma.providerKey.findMany({
+      where: { userId: session.user.id },
+      select: {
+        provider: true,
+        apiKey: true,
+      }
+    });
+
+    const keys: ApiKeys = {};
+    for (const keyRecord of providerKeys) {
+      keys[keyRecord.provider] = keyRecord.apiKey;
+    }
+    
+    return keys;
+  } catch (error) {
+    console.error('Error reading API keys from database:', error);
+    return {};
   }
 }
 
 export async function writeApiKeys(keys: ApiKeys): Promise<void> {
   try {
-    // Ensure config directory exists
-    await fs.mkdir(path.dirname(KEYS_FILE_PATH), { recursive: true });
-    
-    // Atomic write: write to temp file then rename
-    const tempPath = `${KEYS_FILE_PATH}.tmp`;
-    await fs.writeFile(tempPath, JSON.stringify(keys, null, 2), 'utf-8');
-    await fs.rename(tempPath, KEYS_FILE_PATH);
-  } catch (error) {
-    // Clean up temp file if it exists
-    try {
-      await fs.unlink(`${KEYS_FILE_PATH}.tmp`);
-    } catch {
-      // Ignore cleanup errors
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      throw new Error('User not authenticated');
     }
+
+    // Delete existing keys for this user
+    await prisma.providerKey.deleteMany({
+      where: { userId: session.user.id }
+    });
+
+    // Insert new keys
+    const keyEntries = Object.entries(keys).map(([provider, apiKey]) => ({
+      provider,
+      apiKey,
+      userId: session.user.id
+    }));
+
+    if (keyEntries.length > 0) {
+      await prisma.providerKey.createMany({
+        data: keyEntries
+      });
+    }
+  } catch (error) {
+    console.error('Error writing API keys to database:', error);
     throw error;
   }
 }
@@ -52,29 +75,108 @@ export async function setApiKey(provider: AllowedProvider, key: string): Promise
     throw new Error('API key cannot be empty');
   }
 
-  const keys = await readApiKeys();
-  keys[provider] = key.trim();
-  await writeApiKeys(keys);
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    throw new Error('User not authenticated');
+  }
+
+  // First try to find existing key
+  const existingKey = await prisma.providerKey.findFirst({
+    where: {
+      userId: session.user.id,
+      provider: provider
+    }
+  });
+
+  if (existingKey) {
+    // Update existing key
+    await prisma.providerKey.update({
+      where: { id: existingKey.id },
+      data: { apiKey: key.trim() }
+    });
+  } else {
+    // Create new key
+    await prisma.providerKey.create({
+      data: {
+        provider: provider,
+        apiKey: key.trim(),
+        userId: session.user.id
+      }
+    });
+  }
 }
 
 export async function deleteApiKey(provider: AllowedProvider): Promise<void> {
-  const keys = await readApiKeys();
-  delete keys[provider];
-  await writeApiKeys(keys);
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    throw new Error('User not authenticated');
+  }
+
+  await prisma.providerKey.deleteMany({
+    where: {
+      userId: session.user.id,
+      provider: provider
+    }
+  });
 }
 
 export async function getApiKey(provider: AllowedProvider): Promise<string | undefined> {
-  const keys = await readApiKeys();
-  return keys[provider];
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return undefined;
+    }
+
+    const providerKey = await prisma.providerKey.findFirst({
+      where: {
+        userId: session.user.id,
+        provider: provider
+      },
+      select: {
+        apiKey: true
+      }
+    });
+
+    return providerKey?.apiKey;
+  } catch (error) {
+    console.error(`Error getting API key for ${provider}:`, error);
+    return undefined;
+  }
 }
 
 export async function getKeyStatus(): Promise<Record<AllowedProvider, boolean>> {
-  const keys = await readApiKeys();
-  const status: Record<AllowedProvider, boolean> = {} as any;
-  
-  for (const provider of ALLOWED_PROVIDERS) {
-    status[provider] = !!(keys[provider] && keys[provider].trim().length > 0);
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      const status: Record<AllowedProvider, boolean> = {} as any;
+      for (const provider of ALLOWED_PROVIDERS) {
+        status[provider] = false;
+      }
+      return status;
+    }
+
+    const providerKeys = await prisma.providerKey.findMany({
+      where: { userId: session.user.id },
+      select: {
+        provider: true,
+        apiKey: true,
+      }
+    });
+
+    const status: Record<AllowedProvider, boolean> = {} as any;
+    
+    for (const provider of ALLOWED_PROVIDERS) {
+      const keyRecord = providerKeys.find(k => k.provider === provider);
+      status[provider] = !!(keyRecord?.apiKey && keyRecord.apiKey.trim().length > 0);
+    }
+    
+    return status;
+  } catch (error) {
+    console.error('Error getting key status:', error);
+    const status: Record<AllowedProvider, boolean> = {} as any;
+    for (const provider of ALLOWED_PROVIDERS) {
+      status[provider] = false;
+    }
+    return status;
   }
-  
-  return status;
 }

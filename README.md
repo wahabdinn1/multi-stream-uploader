@@ -21,42 +21,41 @@ A secure, fullstack Next.js application for uploading videos to multiple provide
 - **State Management**: Zustand with persistence
 - **UI Components**: shadcn/ui with Neobrutalism registry
 - **API**: Next.js API Routes for server-side operations
-- **File Storage**: Server-side JSON for API keys (development only)
+- **Database**: SQLite with Prisma ORM
+- **Authentication**: NextAuth.js with credentials provider
+- **Security**: Bcrypt password hashing, JWT sessions
 
 ## 📁 Project Structure
 
 ```
-├── config/
-│   └── apiKeys.json          # Server-side API keys (gitignored)
+├── prisma/
+│   ├── migrations/           # Database migrations
+│   ├── schema.prisma         # Database schema
+│   └── dev.db               # SQLite database (development)
 ├── src/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── keys/         # API key management endpoints
-│   │   │   ├── upload/       # File upload endpoint
-│   │   │   └── provider/     # Provider-specific API routes
-│   │   │       └── [provider]/
-│   │   │           ├── folders/     # Folder listing and management
-│   │   │           │   └── [id]/
-│   │   │           │       └── rename/  # Folder rename endpoint
-│   │   │           └── files/       # File management
-│   │   │               └── [id]/
-│   │   │                   ├── move/    # File move endpoint
-│   │   │                   └── rename/  # File rename endpoint
-│   │   ├── history/          # Upload history page
-│   │   ├── provider/         # Provider-specific pages
-│   │   │   └── [slug]/       # Dynamic provider folder management
-│   │   ├── settings/         # API key configuration page
+│   │   │   ├── auth/         # NextAuth authentication
+│   │   │   ├── account/      # Account info endpoint
+│   │   │   ├── keys/         # API key management
+│   │   │   └── upload/       # File upload endpoint
+│   │   ├── account/          # User account page
+│   │   ├── admin/            # Admin dashboard
+│   │   ├── login/            # Login page
+│   │   ├── register/         # Registration page
 │   │   └── page.tsx          # Main upload page
 │   ├── components/
 │   │   ├── ui/               # shadcn/ui components (Neobrutalism)
 │   │   ├── FileUploader.tsx  # Drag & drop upload component
-│   │   ├── ProviderManager.tsx # Provider folder/file management
-│   │   ├── Navbar.tsx        # Navigation with provider dropdown
-│   │   └── ProviderSelector.tsx # Provider selection component
-│   └── lib/
-│       ├── keyStorage.ts     # Server-side key management utilities
-│       ├── providers.ts      # Provider abstraction layer
-│       └── store.ts          # Zustand state management
+│   │   ├── AccountContent.tsx # Account information display
+│   │   └── Navbar.tsx        # Navigation component
+│   ├── lib/
+│   │   ├── prisma.ts         # Prisma client configuration
+│   │   ├── keyStorage.ts     # Database key management
+│   │   └── providers.ts      # Provider abstraction layer
+│   └── types/
+│       └── next-auth.d.ts    # NextAuth type definitions
+├── middleware.ts             # Route protection middleware
 └── README.md
 ```
 
@@ -72,80 +71,113 @@ A secure, fullstack Next.js application for uploading videos to multiple provide
 1. **Clone and install dependencies:**
    ```bash
    git clone <repository-url>
-   cd multi-provider-uploader
+   cd multi-stream-uploader
    pnpm install
    ```
 
-2. **Start the development server:**
+2. **Setup environment variables:**
+   ```bash
+   cp .env.example .env.local
+   ```
+   
+   Edit `.env.local` and add:
+   ```bash
+   # Database
+   DATABASE_URL="file:./dev.db"
+   
+   # NextAuth Configuration
+   NEXTAUTH_URL="http://localhost:3000"
+   NEXTAUTH_SECRET="your-secret-key-here"
+   ```
+
+3. **Generate NextAuth Secret:**
+   ```bash
+   # Generate a secure random secret
+   openssl rand -base64 32
+   # OR using Node.js
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+   ```
+   Copy the generated secret to your `NEXTAUTH_SECRET` in `.env.local`
+
+4. **Setup database:**
+   ```bash
+   npx prisma generate
+   npx prisma db push
+   ```
+
+5. **Start the development server:**
    ```bash
    pnpm dev
    ```
 
-3. **Open the application:**
+6. **Open the application:**
    Navigate to [http://localhost:3000](http://localhost:3000)
 
-### API Key Configuration
+### User Registration & API Key Configuration
 
-1. **Navigate to Settings** (`/settings`) in the application
-2. **Add your provider API keys:**
+1. **Create an account:**
+   - Navigate to `/register` to create a new user account
+   - Or login at `/login` if you already have an account
+
+2. **Configure your provider API keys:**
+   Navigate to your account settings and add your provider API keys:
    - **DoodStream**: Get your API key from DoodStream.com dashboard → API settings
    - **StreamTape**: Get your login and API key from StreamTape.com → API (format: "login:key")
    - **VidGuard**: Get your API key from VidGuard.to dashboard → API settings
    - **BigWarp**: Get your API token from BigWarp.com → Account → API
 
-3. **Keys are automatically saved** to `config/apiKeys.json` server-side
+3. **Keys are securely stored** in the database per user with encryption
 
-**Example API Keys Structure:**
-```json
-{
-  "doodstream": "YOUR_DOODSTREAM_API_KEY",
-  "streamtape": "YOUR_LOGIN:YOUR_API_KEY",
-  "vidguard": "YOUR_VIDGUARD_API_KEY",
-  "bigwarp": "YOUR_BIGWARP_API_TOKEN"
-}
-```
+**Example API Keys Format:**
+- **DoodStream**: `d1234567890abcdef1234567890abcdef`
+- **StreamTape**: `mylogin:1234567890abcdef1234567890abcdef`
+- **VidGuard**: `1234567890abcdef1234567890abcdef`
+- **BigWarp**: `1234567890abcdef1234567890abcdef`
 
 ## 🔒 Security Features
 
-### Server-Side Key Storage
-- API keys stored in `config/apiKeys.json` (server-side only)
+### Database Security
+- API keys stored encrypted in SQLite database per user
+- User passwords hashed with bcrypt
+- JWT sessions with secure secret
 - Keys never exposed to browser/client-side code
-- Atomic file writes prevent corruption
-- File added to `.gitignore` to prevent commits
+
+### Authentication & Authorization
+- NextAuth.js integration with credentials provider
+- Role-based access control (USER vs SUPER_ADMIN)
+- Protected API routes with session validation
+- Middleware-based route protection
 
 ### API Route Security
 - Input validation and sanitization
 - Provider whitelist enforcement
 - File type and size validation
 - Error handling without key exposure
+- User-specific API key isolation
 
 ### Development vs Production
-- **Development**: Uses local JSON file storage
-- **Production**: Recommend environment variables or secrets manager
-- **File Permissions**: Ensure proper server-side access controls
+- **Development**: Uses local SQLite database
+- **Production**: Recommend PostgreSQL or MySQL with proper connection pooling
+- **Environment Variables**: All secrets stored in environment variables
 
 ## 📡 API Endpoints
 
-### Key Management
-- `GET /api/keys` - Get provider configuration status (masked)
+### Authentication
+- `POST /api/auth/signin` - User login
+- `POST /api/auth/signup` - User registration
+- `GET /api/auth/session` - Get current session
+
+### Account Management
+- `GET /api/account` - Get account info from all configured providers
+- `GET /api/keys` - Get user's API key status
 - `PUT /api/keys` - Add/update provider API key
 - `DELETE /api/keys` - Remove provider API key
-- `GET /api/keys/allowed` - Get list of supported providers
 
 ### File Upload
 - `POST /api/upload` - Upload files to selected providers
+  - Requires authentication
   - Supports multiple files and providers
   - Returns detailed results per provider
-  - Validates file types and sizes
-
-### Provider Management
-- `GET /api/provider/[provider]/folders` - List folders and files for a provider
-- `POST /api/provider/[provider]/folders` - Create new folder
-- `DELETE /api/provider/[provider]/folders/[id]` - Delete folder
-- `PUT /api/provider/[provider]/folders/[id]/rename` - Rename folder
-- `PUT /api/provider/[provider]/files/[id]/move` - Move file to different folder
-- `PUT /api/provider/[provider]/files/[id]/rename` - Rename file
-- `DELETE /api/provider/[provider]/files/[id]` - Delete file
 
 ## 🎨 UI Components
 
@@ -157,11 +189,10 @@ A secure, fullstack Next.js application for uploading videos to multiple provide
 
 ### Key Components
 - **FileUploader**: Drag & drop with progress tracking
-- **ProviderSelector**: Multi-select with status indicators  
-- **ProviderManager**: Complete folder/file management with thumbnails and metadata
-- **Navbar**: Navigation with provider dropdown for quick access
-- **Settings Page**: Secure key management interface
-- **History Page**: Upload tracking with filtering
+- **AccountContent**: Provider account information display
+- **Navbar**: Navigation with authentication status
+- **Login/Register**: User authentication forms
+- **Admin Dashboard**: Super admin user management
 
 ## 🔧 Development
 
@@ -177,19 +208,29 @@ pnpm lint         # Run ESLint
 
 1. **Update allowed providers** in `src/lib/keyStorage.ts`:
    ```typescript
-   export const ALLOWED_PROVIDERS = ['vidguard', 'bigwarp', 'newprovider'] as const;
+   export const ALLOWED_PROVIDERS = ['vidguard', 'bigwarp', 'doodstream', 'streamtape', 'newprovider'] as const;
    ```
 
 2. **Implement provider class** in `src/lib/providers.ts`:
    ```typescript
    export class NewProviderProvider implements IProvider {
-     // Implement required methods
+     name = 'newprovider';
+     
+     async upload(fileBuffer: Buffer, filename: string, options?: UploadOptions): Promise<UploadResult> {
+       // Implementation
+     }
+     
+     async getAccountInfo(): Promise<AccountInfo> {
+       // Implementation
+     }
+     
+     // Other required methods...
    }
    ```
 
 3. **Add to provider factory**:
    ```typescript
-   export function getProvider(providerName: AllowedProvider): IProvider {
+   export function getProvider(providerName: string): IProvider {
      switch (providerName) {
        case 'newprovider':
          return new NewProviderProvider();
@@ -210,20 +251,30 @@ pnpm lint         # Run ESLint
 
 ### Common Issues
 
-**API keys not saving:**
-- Check file permissions on `config/` directory
-- Ensure server has write access to project root
-- Verify JSON format in browser network tab
+**Authentication issues:**
+- Ensure `NEXTAUTH_SECRET` is set in `.env.local`
+- Check database connection and Prisma client generation
+- Verify user registration/login process
+
+**API keys not working:**
+- Ensure user is logged in
+- Check API key configuration in account settings
+- Verify provider API key format (especially StreamTape: `login:key`)
+
+**Database errors:**
+- Run `npx prisma generate` after schema changes
+- Run `npx prisma db push` to sync database
+- Check SQLite database permissions
 
 **Upload failures:**
-- Verify API keys are correctly configured
-- Check file size limits (100MB max)
+- Verify API keys are correctly configured for logged-in user
+- Check file size limits (varies by provider)
 - Ensure supported file types (MP4, AVI, MOV, etc.)
 
 **Build errors:**
 - Run `pnpm install` to ensure all dependencies
 - Check TypeScript errors with `pnpm build`
-- Verify all imports and component props
+- Verify Prisma client is generated
 
 ## 📄 License
 
